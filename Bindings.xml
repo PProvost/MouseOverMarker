@@ -1,0 +1,6 @@
+<Bindings>
+  <Binding name="Clear Marks" description="Clears all current marks" header="MouseOverMarker">
+		MouseOverMarker_ClearMarks()
+  </Binding>
+</Bindings>
+

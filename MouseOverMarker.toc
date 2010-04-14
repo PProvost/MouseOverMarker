@@ -1,0 +1,18 @@
+## Interface: 30300
+## Title: MouseOverMarker
+## Notes: Simple mouse over raid target marking
+## Author: Quaiche
+## Version: @project-version@
+## X-Category: Misc
+
+## OptionalDeps: tekDebug, tekErr
+## LoadManagers: AddonLoader
+## X-LoadOn-Group: true
+
+libs\LibStub.lua
+libs\CallbackHandler-1.0.lua
+libs\LibDataBroker-1.1.lua
+libs\tekKonfigAboutPanel.lua
+
+Bindings.xml
+MouseOverMarker.lua

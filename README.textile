@@ -1,0 +1,7 @@
+h2. Overview
+
+MouseOverMarker is a simple, lightweight marking addon. Hold down ALT and mouse over your targets, and it will mark them consecutively.
+
+h2. Bugs and Suggestions
+
+Please post any bugs and suggestions on the github project page. Thanks!
