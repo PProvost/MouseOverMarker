@@ -1,49 +1,39 @@
+--[[
+Name: MouseOverMarker
+Author: Quaiche
+Description: Simple mouse-over raid target marking
+
+Copyright 2010 Quaiche
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+--]]
+
 local addonName, ns = ...
+local f -- Event handler frame
 
-local L = setmetatable({}, {__index=function(t,i) return i end})
-
-local function Print(...) print("|cFF33FF99"..addonName.."|r:", ...) end
-local debugf = tekDebug and tekDebug:GetFrame(addonName)
-local function Debug(...) if debugf then debugf:AddMessage(string.join(", ", tostringall(...))) end end
-
-local function IsMarkableUnit(unit)
-	local creatureType = UnitCreatureType(unit)
-	return UnitExists(unit) and (UnitCanAttack("player", unit) or UnitIsEnemy("player", unit)) and not UnitIsDead(unit) and  creatureType ~= "Critter" and creatureType ~= "Totem" and not UnitPlayerControlled(unit)  and not UnitIsPlayer(unit)
-end
-
+-----------------------------------------------------------------
 -- Table of GUIDs for marks assigned to mobs.
 -- Used to know if a mark is still in use. If a mob's GUID is 
 -- here, that mark won't be used.
 local usedMarks = {}
 
-local nextMark = 8
-local function NextMarkIndex()
-	local current = nextMark
-	-- TODO: Is the next mark taken?
-	if nextMark > 0 then nextMark = nextMark - 1 end
-	return current
-end
+-----------------------------------------------------------------
+-- Debug and print helpers
+local function Print(...) print("|cFF33FF99"..addonName.."|r:", ...) end
+local debugf = tekDebug and tekDebug:GetFrame(addonName)
+local function Debug(...) if debugf then debugf:AddMessage(string.join(", ", tostringall(...))) end end
 
-local function ScanRaid()
-	local index
-	for i=1,GetNumRaidMembers() do
-		index = GetRaidTargetIndex("raid"..i)
-		if index then usedMarks[index] = UnitGUID("raid"..i) end
-	end
-end
-
-local function ScanParty()
-	local index
-	for i=1,GetNumPartyMembers() do
-		index = GetRaidTargetIndex("party"..i)
-		if index then usedMarks[index] = UnitGUID("raid"..i) end
-	end
-end
-
-local f = CreateFrame("frame")
-f:SetScript("OnEvent", function(self, event, ...) if self[event] then return self[event](self, event, ...) end end)
-f:RegisterEvent("ADDON_LOADED")
-
+-----------------------------------------------------------------
 -- Minitimer to set player to raid target 0
 local total = 0
 local function FinalMarkReset(self, elapsed)
@@ -55,41 +45,109 @@ local function FinalMarkReset(self, elapsed)
 	end
 end
 
+-----------------------------------------------------------------
+-- Determines if a unit is markable or not
+local function IsMarkableUnit(unit)
+	local creatureType = UnitCreatureType(unit)
+	return UnitExists(unit) and (UnitCanAttack("player", unit) or UnitIsEnemy("player", unit)) and not UnitIsDead(unit) and  creatureType ~= "Critter" and creatureType ~= "Totem" and not UnitPlayerControlled(unit)  and not UnitIsPlayer(unit)
+end
+
+-----------------------------------------------------------------
+-- Forcably clear all marks
+local function ClearMarks()
+	for i = 8,1,-1 do
+		usedMarks[i] = nil
+		SetRaidTarget("player", i)
+	end
+	f:SetScript("OnUpdate", FinalMarkReset) -- force a final clear after 1/2 sec... 
+end
+
+-----------------------------------------------------------------
+-- Determines the next available mark
+local function NextMarkIndex()
+	for index = 8,1,-1 do
+		if usedMarks[index] == nil then return index end
+	end
+end
+
+-----------------------------------------------------------------
+-- Scanning functions
+local function ScanUnit(unit)
+	local index = GetRaidTargetIndex(unit)
+	if index then usedMarks[index] = UnitGUID(unit) end
+end
+
+local function ScanRaid()
+	for i=1,GetNumRaidMembers() do 
+		ScanUnit("raid"..i)
+		ScanUnit("raid"..i.."target")
+	end
+end
+
+local function ScanParty()
+	for i=1,GetNumPartyMembers() do 
+		ScanUnit("party"..i)
+		ScanUnit("party"..i.."target")
+	end
+end
+
+-----------------------------------------------------------------
+-- Marks the given unit with the next available mark
+local function MarkUnit(unit)
+	-- Only mark if it is a markable unit and doesn't already have a mark
+	if not IsMarkableUnit(unit) then return end
+	if GetRaidTargetIndex(unit) then return end
+
+	-- Get the next mark
+	local markIndex = NextMarkIndex()
+	if not markIndex then return end -- no marks left
+
+	-- Mark em up!
+	usedMarks[markIndex] = UnitGUID(unit)
+	SetRaidTarget(unit, markIndex)
+end
+
+-- Debug helper function that returns the current used mark list as a string.
+local function GetUsedMarksString()
+	local result = ""
+	for i = 8,1,-1 do
+		result = result..i..":"..tostring(usedMarks[i])
+		if i < 8 then result = result..", " end
+	end
+	return result
+end
+
+-----------------------------------------------------------------
+-- Event handler frame
+f = CreateFrame("frame")
+f:SetScript("OnEvent", function(self, event, ...) if self[event] then return self[event](self, event, ...) end end)
+f:RegisterEvent("ADDON_LOADED")
+
 function f:ADDON_LOADED(event, addon)
 	if addon ~= addonName then return end
 
 	f:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 	f:RegisterEvent("RAID_TARGET_UPDATE")
+	f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 	LibStub("tekKonfig-AboutPanel").new(nil, addonName) -- Make first arg nil if no parent config panel
-
 	self:UnregisterEvent("ADDON_LOADED")
 	self.ADDON_LOADED = nil
 end
 
+-- Called for every mouseover event
 function f:UPDATE_MOUSEOVER_UNIT()
-	local unit = "mouseover"
-
-	-- We good to go?
-	if not IsMarkableUnit(unit) then return end
 	if not IsAltKeyDown() then return end
-
-	-- Preserve previously set marks
-	local currentRaidTargetIndex = GetRaidTargetIndex(unit)
-	if currentRaidTargetIndex then return end
-
-	-- Get the next mark
-	local nextMark = NextMarkIndex()
-	if nextMark==0 then return end -- no marks left
-
-	-- Mark em up!
-	usedMarks[nextMark] = UnitGUID("mouseover")
-	SetRaidTarget(unit, nextMark)
+	MarkUnit("mouseover")
 end
 
 -- Fired when raid target icons are assigned or cleared
 function f:RAID_TARGET_UPDATE()
-	-- TODO: scan party/raid to see if any marks are set that we need to skip over
+	-- Check player's target
+	local targetIndex = GetRaidTargetIndex("target")
+	if targetIndex then usedMarks[targetIndex] = UnitGUID('target') end
+
+	-- Check party/raid and their targets
 	if GetNumRaidMembers() > 0 then
 		ScanRaid()
 	elseif GetNumPartyMembers() > 0 and UnitInRaid("player") == false then
@@ -97,13 +155,30 @@ function f:RAID_TARGET_UPDATE()
 	end
 end
 
--- Global function for keybinding :(
-function MouseOverMarker_ClearMarks()
-	for i = 8,0,-1 do
-		usedMarks[i] = nil
-		SetRaidTarget("player", i)
+-- Receives all combat log events... keep it short and sweet
+function f:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, type, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
+	if (type=="UNIT_DIED") or (type=="PARTY_KILL") then
+		for markIndex,unitGUID in ipairs(usedMarks) do
+			if unitGUID==destGUID then
+				usedMarks[markIndex] = nil
+				break
+			end
+		end
 	end
-	f:SetScript("OnUpdate", FinalMarkReset) -- force a final clear after 1/2 sec... 
-	nextMark = 8
+end
+
+-----------------------------------------------------
+-- Keybindings globals
+
+BINDING_HEADER_MOUSEOVERMARKER = "MouseOverMarker"
+BINDING_NAME_MOUSEOVERMARKER_CLEAR = "Clear and reset marks"
+
+function MouseOverMarker_ClearMarks()
+	ClearMarks()
+end
+
+function MouseOverMarker_MarkTarget()
+	if not UnitExists("target") then return end
+	MarkUnit("target")
 end
 
